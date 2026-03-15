@@ -59,7 +59,7 @@ jobs:
       env:
         QT_DEBUG_PLUGINS: 1
       run: |
-        export QT_PLUGIN_PATH=$(python -c "import PySide6; import os; print(os.path.join(PySide6.__path__[0], 'Qt', 'plugins'))")
+        export QT_PLUGIN_PATH=$(uv python -c "import PySide6; import os; print(os.path.join(PySide6.__path__[0], 'Qt', 'plugins'))")
         xvfb-run --auto-servernum uv python scripts/build_linux.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
 
     - name: Rename AppImage
