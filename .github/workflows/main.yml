@@ -1,5 +1,3 @@
-name: Build Test
-
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +11,8 @@ on:
         required: true
         type: string
 
+permissions: {}
+
 jobs:
   build:
     runs-on: macos-latest
@@ -20,7 +20,7 @@ jobs:
       NUITKA_AssumeYesForDownloads: 1
 
     steps:
-    - name: Checkout test
+    - name: Checkout third party
       uses: actions/checkout@v4
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
@@ -39,15 +39,16 @@ jobs:
         uv pip install --system -r pyproject.toml
         pip install nuitka
 
-    - name: Build macOS App
-      run: python scripts/build_macos.py
+    - name: Build App
+      run: |
+        python scripts/build_macos.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
 
     - name: Create Zip
       run: |
         cd out
-        zip -r "${{ secrets.APP_NAME_EN }}-macOS.zip" "${{ secrets.APP_NAME_ZH }}.app"
+        zip -r "${{ secrets.APP_NAME_EN }}-macOS.zip" "${{ secrets.APP_NAME_ZH }}.app" > /dev/null 2>&1
 
-    - name: Upload test
+    - name: Upload
       uses: softprops/action-gh-release@v1
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
