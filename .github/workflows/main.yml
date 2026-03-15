@@ -1,4 +1,4 @@
-name: Build Test
+name: Build macOS
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
 
     - name: Build App
       run: |
-        python scripts/build_macos.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
+        uv run python scripts/build_macos.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
 
     - name: Create Zip
       run: |
