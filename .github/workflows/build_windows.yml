@@ -1,15 +1,15 @@
-name: Build Test2
+name: Build windows
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'asdf'
+        description: 'branch'
         default: 'main'
         required: true
         type: string
       release_tag:
-        description: 'asdf'
+        description: 'tag'
         required: true
         type: string
 
@@ -23,14 +23,14 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
         token: ${{ secrets.PRIVATE_REPO_TOKEN }}
         ref: ${{ inputs.branch }}
       
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
         
@@ -53,7 +53,7 @@ jobs:
         
     - name: Create Portable Zip
       run: |
-        powershell Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-Windows-Portable.zip
+        powershell Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Windows-Portable.zip
 
     - name: Upload to Private Release
       uses: softprops/action-gh-release@v1
