@@ -1,0 +1,81 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'branch'
+        default: 'main'
+        required: true
+        type: string
+      release_tag:
+        description: 'tag'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ secrets.PRIVATE_REPO_NAME }}
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        ref: ${{ inputs.branch }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      # 依赖安装过程静默处理，保持日志干净
+      run: |
+        python -m pip install --upgrade pip > /dev/null 2>&1
+        pip install uv > /dev/null 2>&1
+        uv pip install --system -r pyproject.toml > /dev/null 2>&1
+        pip install nuitka > /dev/null 2>&1
+
+    - name: Install System Dependencies
+      # 替换国内源并安装 Qt 和 AppImage 必须的系统库，同样静默处理
+      run: |
+        sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+        sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+        sudo apt-get update > /dev/null 2>&1
+        sudo apt-get install -y build-essential libfuse2 file patchelf \
+          libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+          libxcb-render-util0 libxcb-render0 libxcb-shape0 libxcb-sync1 libxcb-util1 \
+          libxcb-xfixes0 libxcb-xinerama0 libxcb1 libxkbcommon-x11-0 \
+          libgl1 libegl1 libfontconfig1 libdbus-1-3 libx11-xcb1 libxrender1 libxext6 \
+          libxcb-xkb1 libxcb-xinput0 libxcb-shm0 libsm6 libice6 libglib2.0-0 \
+          xvfb > /dev/null 2>&1
+
+    # 【安全补丁2】启动 xvfb 虚拟屏幕并静默编译，防止 Nuitka 暴露内部结构
+    - name: Build and Package
+      env:
+        QT_DEBUG_PLUGINS: 1
+      run: |
+        export QT_PLUGIN_PATH=$(python -c "import PySide6; import os; print(os.path.join(PySide6.__path__[0], 'Qt', 'plugins'))")
+        xvfb-run --auto-servernum uv python scripts/build_linux.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
+
+    - name: Rename AppImage
+      # 使用 Secret 重新命名打好的 AppImage 包，隐藏原始的中文或特殊包名
+      run: |
+        cd out
+        mv *.AppImage "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage" > /dev/null 2>&1
+
+    - name: Upload to Private Release
+      uses: softprops/action-gh-release@v1
+      with:
+        repository: ${{ secrets.PRIVATE_REPO_NAME }}
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        tag_name: ${{ inputs.release_tag }}
+        files: out/${{ secrets.APP_NAME_EN }}-Linux.AppImage
+
+    - name: Bark Notification
+      if: always()
+      run: curl -s "https://api.day.app/${{ secrets.BARK_KEY }}/LinuxBuild/${{ job.status }}" > /dev/null
