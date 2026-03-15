@@ -22,15 +22,15 @@ jobs:
       NUITKA_AssumeYesForDownloads: 1
 
     steps:
-    - name: Checkout third party
-      uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v5
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
         token: ${{ secrets.PRIVATE_REPO_TOKEN }}
         ref: ${{ inputs.branch }}
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
@@ -48,7 +48,7 @@ jobs:
     - name: Create Zip
       run: |
         cd out
-        zip -r "${{ secrets.APP_NAME_EN }}-macOS.zip" "${{ secrets.APP_NAME_ZH }}.app" > /dev/null 2>&1
+        zip -r "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-macOS.zip" "${{ secrets.APP_NAME_ZH }}.app" > /dev/null 2>&1
 
     - name: Upload
       uses: softprops/action-gh-release@v1
