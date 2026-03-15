@@ -1,0 +1,70 @@
+name: Build Test2
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'asdf'
+        default: 'main'
+        required: true
+        type: string
+      release_tag:
+        description: 'asdf'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      NUITKA_AssumeYesForDownloads: 1
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ secrets.PRIVATE_REPO_NAME }}
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        ref: ${{ inputs.branch }}
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      run: pip install uv > NUL 2>&1
+        
+    - name: Install dependencies
+      run: uv sync > NUL 2>&1
+        
+    - name: Build Windows
+      run: |
+        uv run python scripts/build_windows.py > build_log.txt 2>&1 || (echo "Build Failed" && exit 1)
+
+    - name: Install Inno Setup
+      run: choco install innosetup --no-progress > NUL 2>&1
+
+    - name: Build Installer
+      run: iscc pack_installer.iss > build_log.txt 2>&1 || (echo "Installer Build Failed" && exit 1)
+      shell: cmd
+        
+    - name: Create Portable Zip
+      run: |
+        powershell Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-Windows-Portable.zip
+
+    - name: Upload to Private Release
+      uses: softprops/action-gh-release@v1
+      with:
+        repository: ${{ secrets.PRIVATE_REPO_NAME }}
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        tag_name: ${{ inputs.release_tag }}
+        files: |
+          release/*.exe
+          release/*.zip
+
+    - name: Bark Notification
+      if: always()
+      run: curl.exe "https://api.day.app/${{ secrets.BARK_KEY }}/WindowsBuild/${{ job.status }}"
