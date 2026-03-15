@@ -74,7 +74,7 @@ jobs:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
         token: ${{ secrets.PRIVATE_REPO_TOKEN }}
         tag_name: ${{ inputs.release_tag }}
-        files: out/${{ secrets.APP_NAME_EN }}-Linux.AppImage
+        files: out/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage
 
     - name: Bark Notification
       if: always()
