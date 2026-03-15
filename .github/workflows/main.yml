@@ -4,12 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: '分支'
-        default: 'refactor'
+        description: 'branch'
+        default: 'main'
         required: true
+        type: string
       release_tag:
         description: 'tag'
         required: true
+        type: string
 
 jobs:
   build:
@@ -18,7 +20,7 @@ jobs:
       NUITKA_AssumeYesForDownloads: 1
 
     steps:
-    - name: Checkout code
+    - name: Checkout test
       uses: actions/checkout@v4
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
@@ -37,7 +39,7 @@ jobs:
         uv pip install --system -r pyproject.toml
         pip install nuitka
 
-    - name: Build App
+    - name: Build macOS App
       run: python scripts/build_macos.py
 
     - name: Create Zip
@@ -45,7 +47,7 @@ jobs:
         cd out
         zip -r "${{ secrets.APP_NAME_EN }}-macOS.zip" "${{ secrets.APP_NAME_ZH }}.app"
 
-    - name: Upload to Private Release
+    - name: Upload test
       uses: softprops/action-gh-release@v1
       with:
         repository: ${{ secrets.PRIVATE_REPO_NAME }}
