@@ -12,6 +12,11 @@ on:
         description: 'tag'
         required: true
         type: string
+      show_logs:
+        description: '是否在控制台显示详细日志'
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -35,25 +40,55 @@ jobs:
         python-version: '3.11'
         
     - name: Install uv
-      run: pip install uv > NUL 2>&1
+      shell: cmd
+      run: |
+        if /I "${{ inputs.show_logs }}"=="true" (
+          pip install uv
+        ) else (
+          pip install uv > NUL 2>&1
+        )
         
     - name: Install dependencies
-      run: uv sync > NUL 2>&1
+      shell: cmd
+      run: |
+        if /I "${{ inputs.show_logs }}"=="true" (
+          uv sync
+        ) else (
+          uv sync > NUL 2>&1
+        )
         
     - name: Build Windows
+      shell: cmd
       run: |
-        uv run python scripts/build_windows.py > build_log.txt 2>&1 || (echo "Build Failed" && exit 1)
+        if /I "${{ inputs.show_logs }}"=="true" (
+          uv run python scripts/build_windows.py
+        ) else (
+          uv run python scripts/build_windows.py > build_windows.log 2>&1 || (type build_windows.log & echo Build Failed & exit /b 1)
+        )
 
     - name: Install Inno Setup
-      run: choco install innosetup --no-progress > NUL 2>&1
+      shell: cmd
+      run: |
+        if /I "${{ inputs.show_logs }}"=="true" (
+          choco install innosetup --no-progress
+        ) else (
+          choco install innosetup --no-progress > NUL 2>&1
+        )
 
     - name: Build Installer
-      run: iscc pack_installer.iss > build_log.txt 2>&1 || (echo "Installer Build Failed" && exit 1)
       shell: cmd
+      run: |
+        if /I "${{ inputs.show_logs }}"=="true" (
+          iscc pack_installer.iss
+        ) else (
+          iscc pack_installer.iss > build_installer.log 2>&1 || (type build_installer.log & echo Installer Build Failed & exit /b 1)
+        )
         
     - name: Create Portable Zip
+      shell: powershell
       run: |
-        powershell Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Windows-Portable.zip
+        New-Item -ItemType Directory -Force -Path release | Out-Null
+        Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Windows-Portable.zip -Force
 
     - name: Upload to Private Release
       uses: softprops/action-gh-release@v1
