@@ -1,0 +1,212 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'branch'
+        default: 'main'
+        required: true
+        type: string
+      release_tag:
+        description: 'tag'
+        required: true
+        type: string
+      show_logs:
+        description: '是否在控制台显示详细日志'
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS x64
+            os: macos
+            runner: macos-15-intel
+            artifact_suffix: macOS-x64
+            bark_title: macOSX64Build
+          - name: macOS Apple Silicon
+            os: macos
+            runner: macos-15
+            artifact_suffix: macOS-arm64
+            bark_title: macOSArm64Build
+          - name: Windows
+            os: windows
+            runner: windows-latest
+            artifact_suffix: Windows
+            bark_title: WindowsBuild
+          - name: Linux
+            os: linux
+            runner: ubuntu-latest
+            artifact_suffix: Linux
+            bark_title: LinuxBuild
+
+    env:
+      NUITKA_AssumeYesForDownloads: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ secrets.PRIVATE_REPO_NAME }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ref: ${{ inputs.branch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos'
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          uv pip install --system -r pyproject.toml
+          pip install nuitka
+
+      - name: Build macOS app
+        if: matrix.os == 'macos'
+        run: |
+          uv run python scripts/build_macos.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
+
+      - name: Create macOS zip
+        if: matrix.os == 'macos'
+        run: |
+          cd out
+          zip -r "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-${{ matrix.artifact_suffix }}.zip" "${{ secrets.APP_NAME_ZH }}.app" > /dev/null 2>&1
+
+      - name: Install Windows uv
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if /I "${{ inputs.show_logs }}"=="true" (
+            pip install uv
+          ) else (
+            pip install uv > NUL 2>&1
+          )
+
+      - name: Install Windows dependencies
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if /I "${{ inputs.show_logs }}"=="true" (
+            uv sync
+          ) else (
+            uv sync > NUL 2>&1
+          )
+
+      - name: Build Windows app
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if /I "${{ inputs.show_logs }}"=="true" (
+            uv run python scripts/build_windows.py
+          ) else (
+            uv run python scripts/build_windows.py > build_windows.log 2>&1 || (type build_windows.log & echo Build Failed & exit /b 1)
+          )
+
+      - name: Install Inno Setup
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if /I "${{ inputs.show_logs }}"=="true" (
+            choco install innosetup --no-progress
+          ) else (
+            choco install innosetup --no-progress > NUL 2>&1
+          )
+
+      - name: Build Windows installer
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if /I "${{ inputs.show_logs }}"=="true" (
+            iscc pack_installer.iss
+          ) else (
+            iscc pack_installer.iss > build_installer.log 2>&1 || (type build_installer.log & echo Installer Build Failed & exit /b 1)
+          )
+
+      - name: Create Windows portable zip
+        if: matrix.os == 'windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Windows-Portable.zip -Force
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          python -m pip install --upgrade pip > /dev/null 2>&1
+          pip install uv > /dev/null 2>&1
+          uv pip install --system -r pyproject.toml > /dev/null 2>&1
+          pip install nuitka > /dev/null 2>&1
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y build-essential libfuse2 file patchelf \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-render0 libxcb-shape0 libxcb-sync1 libxcb-util1 \
+            libxcb-xfixes0 libxcb-xinerama0 libxcb1 libxkbcommon-x11-0 \
+            libgl1 libegl1 libfontconfig1 libdbus-1-3 libx11-xcb1 libxrender1 libxext6 \
+            libxcb-xkb1 libxcb-xinput0 libxcb-shm0 libsm6 libice6 libglib2.0-0 \
+            xvfb > /dev/null 2>&1
+
+      - name: Build and package Linux app
+        if: matrix.os == 'linux'
+        env:
+          QT_DEBUG_PLUGINS: 1
+        run: |
+          export QT_PLUGIN_PATH=$(uv run python -c "import PySide6; import os; print(os.path.join(PySide6.__path__[0], 'Qt', 'plugins'))")
+          xvfb-run --auto-servernum uv run python scripts/build_linux.py > build_log.txt 2>&1 || (echo "Build Failed! Check local environment." && exit 1)
+
+      - name: Rename Linux AppImage
+        if: matrix.os == 'linux'
+        run: |
+          cd out
+          mv *.AppImage "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage" > /dev/null 2>&1
+
+      - name: Upload macOS release asset
+        if: matrix.os == 'macos'
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: ${{ secrets.PRIVATE_REPO_NAME }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: ${{ inputs.release_tag }}
+          files: out/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-${{ matrix.artifact_suffix }}.zip
+
+      - name: Upload Windows release assets
+        if: matrix.os == 'windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: ${{ secrets.PRIVATE_REPO_NAME }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            release/*.exe
+            release/*.zip
+
+      - name: Upload Linux release asset
+        if: matrix.os == 'linux'
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: ${{ secrets.PRIVATE_REPO_NAME }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: ${{ inputs.release_tag }}
+          files: out/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage
+
+      - name: Bark Notification
+        if: always()
+        shell: bash
+        run: curl -s "https://api.day.app/${{ secrets.BARK_KEY }}/${{ matrix.bark_title }}/${{ job.status }}" > /dev/null
