@@ -82,6 +82,12 @@ jobs:
           uv pip install --system -r pyproject.toml
           pip install nuitka
 
+      - name: Fix macOS x64 OpenSSL dylib aliases
+        if: matrix.artifact_suffix == 'macOS-x64'
+        run: |
+          sudo rm -f /usr/local/lib/libcrypto.dylib
+          sudo rm -f /usr/local/lib/libssl.dylib
+
       - name: Build macOS app
         if: matrix.os == 'macos'
         run: |
