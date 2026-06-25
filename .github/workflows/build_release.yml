@@ -9,8 +9,12 @@ on:
         required: true
         type: string
       release_tag:
-        description: 'tag'
+        description: 'Release tag, e.g. v4.2.15'
         required: true
+        type: string
+      app_version:
+        description: 'Application version, e.g. 4.2.15. Optional, defaults to release_tag'
+        required: false
         type: string
       show_logs:
         description: '是否在控制台显示详细日志'
@@ -52,6 +56,10 @@ jobs:
     env:
       NUITKA_AssumeYesForDownloads: 1
       NUITKA_CACHE_DIR: ${{ github.workspace }}/.nuitka-cache
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      APP_VERSION: ${{ inputs.app_version || '' }}
+      APP_NAME_EN: JFAssistant
+      APP_NAME_ZH: 精防助手
 
     steps:
       - name: Checkout code
@@ -66,6 +74,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Resolve build version
+        shell: bash
+        run: |
+          VERSION="$(python scripts/versioning.py print-build-version)"
+          echo "APP_VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "Resolved APP_VERSION=${VERSION}"
+
+      - name: Synchronize build version
+        shell: bash
+        run: python scripts/versioning.py set "${APP_VERSION}"
+
       - name: Restore Nuitka cache
         uses: actions/cache@v4
         with:
@@ -79,8 +98,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install uv
-          uv pip install --system -r pyproject.toml
-          pip install nuitka
+          uv sync
+          uv run pip install nuitka
 
       - name: Fix macOS x64 OpenSSL dylib aliases
         if: matrix.artifact_suffix == 'macOS-x64'
@@ -91,13 +110,17 @@ jobs:
       - name: Build macOS app
         if: matrix.os == 'macos'
         run: |
-          uv run python scripts/build_macos.py > build_log.txt 2>&1 || (cat build_log.txt && echo "Build Failed! Check local environment." && exit 1)
+          if [ "${{ inputs.show_logs }}" = "true" ]; then
+            uv run python scripts/build_macos.py
+          else
+            uv run python scripts/build_macos.py > build_log.txt 2>&1 || (cat build_log.txt && exit 1)
+          fi
 
       - name: Create macOS zip
         if: matrix.os == 'macos'
         run: |
           cd out
-          zip -r "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-${{ matrix.artifact_suffix }}.zip" "${{ secrets.APP_NAME_ZH }}.app" > /dev/null 2>&1
+          zip -r "${APP_NAME_EN}-v${APP_VERSION}-${{ matrix.artifact_suffix }}.zip" "${APP_NAME_ZH}.app" > /dev/null 2>&1
 
       - name: Install Windows uv
         if: matrix.os == 'windows'
@@ -115,8 +138,10 @@ jobs:
         run: |
           if /I "${{ inputs.show_logs }}"=="true" (
             uv sync
+            uv run pip install nuitka
           ) else (
             uv sync > NUL 2>&1
+            uv run pip install nuitka > NUL 2>&1
           )
 
       - name: Build Windows app
@@ -144,9 +169,9 @@ jobs:
         shell: cmd
         run: |
           if /I "${{ inputs.show_logs }}"=="true" (
-            iscc pack_installer.iss
+            iscc /DMyAppVersion=%APP_VERSION% pack_installer.iss
           ) else (
-            iscc pack_installer.iss > build_installer.log 2>&1 || (type build_installer.log & echo Installer Build Failed & exit /b 1)
+            iscc /DMyAppVersion=%APP_VERSION% pack_installer.iss > build_installer.log 2>&1 || (type build_installer.log & echo Installer Build Failed & exit /b 1)
           )
 
       - name: Create Windows portable zip
@@ -154,21 +179,19 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path out/entry.dist -DestinationPath release/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Windows-Portable.zip -Force
+          Compress-Archive -Path out/entry.dist -DestinationPath "release/${env:APP_NAME_EN}-v${env:APP_VERSION}-Windows-Portable.zip" -Force
 
       - name: Install Linux dependencies
         if: matrix.os == 'linux'
         run: |
           python -m pip install --upgrade pip > /dev/null 2>&1
           pip install uv > /dev/null 2>&1
-          uv pip install --system -r pyproject.toml > /dev/null 2>&1
-          pip install nuitka > /dev/null 2>&1
+          uv sync > /dev/null 2>&1
+          uv run pip install nuitka > /dev/null 2>&1
 
       - name: Install Linux system dependencies
         if: matrix.os == 'linux'
         run: |
-          sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
-          sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
           sudo apt-get update > /dev/null 2>&1
           sudo apt-get install -y build-essential libfuse2 file patchelf \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
@@ -184,13 +207,17 @@ jobs:
           QT_DEBUG_PLUGINS: 1
         run: |
           export QT_PLUGIN_PATH=$(uv run python -c "import PySide6; import os; print(os.path.join(PySide6.__path__[0], 'Qt', 'plugins'))")
-          xvfb-run --auto-servernum uv run python scripts/build_linux.py > build_log.txt 2>&1 || (cat build_log.txt && echo "Build Failed! Check local environment." && exit 1)
+          if [ "${{ inputs.show_logs }}" = "true" ]; then
+            xvfb-run --auto-servernum uv run python scripts/build_linux.py
+          else
+            xvfb-run --auto-servernum uv run python scripts/build_linux.py > build_log.txt 2>&1 || (cat build_log.txt && exit 1)
+          fi
 
       - name: Rename Linux AppImage
         if: matrix.os == 'linux'
         run: |
           cd out
-          mv *.AppImage "${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage" > /dev/null 2>&1
+          mv *.AppImage "${APP_NAME_EN}-v${APP_VERSION}-Linux.AppImage"
 
       - name: Upload macOS release asset
         if: matrix.os == 'macos'
@@ -199,7 +226,7 @@ jobs:
           repository: ${{ secrets.PRIVATE_REPO_NAME }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           tag_name: ${{ inputs.release_tag }}
-          files: out/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-${{ matrix.artifact_suffix }}.zip
+          files: out/${{ env.APP_NAME_EN }}-v${{ env.APP_VERSION }}-${{ matrix.artifact_suffix }}.zip
 
       - name: Upload Windows release assets
         if: matrix.os == 'windows'
@@ -219,7 +246,7 @@ jobs:
           repository: ${{ secrets.PRIVATE_REPO_NAME }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           tag_name: ${{ inputs.release_tag }}
-          files: out/${{ secrets.APP_NAME_EN }}-${{ inputs.release_tag }}-Linux.AppImage
+          files: out/${{ env.APP_NAME_EN }}-v${{ env.APP_VERSION }}-Linux.AppImage
 
       - name: Bark Notification
         if: always()
